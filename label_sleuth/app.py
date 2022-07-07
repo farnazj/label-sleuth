@@ -558,10 +558,10 @@ def get_all_positive_labeled_elements_for_category(workspace_id):
     return jsonify(res)
 
 
-@main_blueprint.route('/workspace/<workspace_id>/import_labels', methods=['POST'])
+@main_blueprint.route('/workspace/<workspace_id>/export_labels', methods=['POST'])
 @cross_origin()
 @login_if_required
-def import_labels(workspace_id):
+def export_labels(workspace_id):
     """
     Upload a csv file, and add its contents as user labels for the workspace. The file may contain labels for more than
     one category.
@@ -580,9 +580,9 @@ def import_labels(workspace_id):
     return jsonify(current_app.orchestrator_api.import_category_labels(workspace_id, df))
 
 
-@main_blueprint.route('/workspace/<workspace_id>/export_labels', methods=['GET'])
+@main_blueprint.route('/workspace/<workspace_id>/import_labels', methods=['GET'])
 @login_if_required
-def export_labels(workspace_id):
+def import_labels(workspace_id):
     """
     Download all user labels from the workspace as a csv file. Each row in the csv is a label for a specific element
     for a specific category. Column names for the various fields are listed under DisplayFields.
