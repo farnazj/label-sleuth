@@ -25,7 +25,8 @@ import {
   getPositiveElementForCategory,
   setFocusedState,
   getPositivePredictions,
-  setWorkspaceVisited
+  setWorkspaceVisited,
+  searchKeywords
 } from "./DataSlice.jsx";
 import * as React from "react";
 import { useDispatch, useSelector } from "react-redux";
@@ -77,21 +78,43 @@ const useWorkspaceState = () => {
     // category changes or model_version changes means
     // that recommend to label and positive predicted text entries has to be updated
     // also the status is updated
-    if (workspace.curCategory && workspace.model_version >= 0) {
-      dispatch(getElementToLabel());
-      dispatch(getPositiveElementForCategory());
-      dispatch(getPositivePredictions())
+    if (workspace.curCategory) {
       dispatch(checkStatus());
+      if (workspace.model_version >= 0) {
+        dispatch(getElementToLabel());
+        dispatch(getPositiveElementForCategory());
+        dispatch(getPositivePredictions());
+      }
     }
   }, [workspace.curCategory, workspace.model_version, dispatch]);
 
   React.useEffect(() => {
-    // document changes and category is set and there is a model available
-    // the positive predicted text entries has to be updated
-    if (workspace.curCategory && workspace.model_version >= 0) {
-      dispatch(getPositiveElementForCategory());
+    if (workspace.uploadedLabels) {
+      const { categories, categoriesCreated } = workspace.uploadedLabels;
+      if (
+        categories &&
+        categories.map((cat) => cat.category).includes(workspace.curCategory)
+      ) {
+        dispatch(setIsCategoryLoaded(false));
+        dispatch(setIsDocLoaded(false));
+        dispatch(fetchElements()).then(() => {
+          if (workspace.searchInput) {
+            dispatch(searchKeywords()).then(() => {
+              dispatch(setIsCategoryLoaded(true));
+              dispatch(setIsDocLoaded(true));
+            });
+          } else {
+            dispatch(setIsCategoryLoaded(true));
+            dispatch(setIsDocLoaded(true));
+          }
+          dispatch(checkStatus());
+        });
+      }
+      if (categoriesCreated) {
+        dispatch(fetchCategories());
+      }
     }
-  }, [workspace.curCategory, workspace.model_version, dispatch]);
+  }, [workspace.uploadedLabels]);
 };
 
 export default useWorkspaceState;
