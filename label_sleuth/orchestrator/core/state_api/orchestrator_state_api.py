@@ -15,6 +15,7 @@
 
 import os
 import threading
+import logging
 from collections import defaultdict
 
 from dataclasses import dataclass, field
@@ -76,6 +77,11 @@ class Workspace:
     categories: Dict[int, Category] = field(default_factory=dict)
 
 
+class WorkspaceSchemeChangedException(Exception):
+    def __init__(self, message):
+        self.message = message
+
+
 class OrchestratorStateApi:
 
     def __init__(self, workspaces_dir):
@@ -100,9 +106,15 @@ class OrchestratorStateApi:
 
     def get_workspace(self, workspace_id) -> Workspace:
         with self.workspaces_lock[workspace_id]:
-            return self._load_workspace(workspace_id)
+            try:
+                return self._load_workspace(workspace_id)
+            except Exception as e:
+                raise WorkspaceSchemeChangedException(
+                    f"Failed to load workspace {workspace_id}. This is probably due to an unhandled "
+                    f"workspace scheme upgrade. Please open an issue on "
+                    f"https://github.com/label-sleuth/label-sleuth/issues/new/choose for additional support") from e
 
-    def get_all_categories(self, workspace_id) -> Mapping[int,Category]:
+    def get_all_categories(self, workspace_id) -> Mapping[int, Category]:
         return {category_id: category for category_id, category in
                 self.get_workspace(workspace_id).categories.items() if category is not None}
 
@@ -122,7 +134,11 @@ class OrchestratorStateApi:
             if file.startswith('.') or not file.endswith('.json'):
                 continue
             workspace_id, _ = os.path.splitext(file)
-            workspace = self.get_workspace(workspace_id)
+            try:
+                workspace = self.get_workspace(workspace_id)
+            except WorkspaceSchemeChangedException:
+                logging.warning(f"Failed to load workspace {workspace_id}. skipping...", exc_info=True)
+                continue
             all_workspaces.append(workspace)
         return all_workspaces
 
@@ -153,7 +169,9 @@ class OrchestratorStateApi:
     def add_category_to_workspace(self, workspace_id: str, category_name: str, category_description: str):
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
-            if category_name in [category.name for category in workspace.categories.values()]:
+            existing_category_names = [category.name for category in workspace.categories.values()
+                                       if category is not None]
+            if category_name in existing_category_names:
                 raise Exception(f"Category '{category_name}' already exists in workspace '{workspace_id}'")
             category_id = len(workspace.categories)
             workspace.categories[category_id] = Category(name=category_name, description=category_description,
@@ -161,7 +179,7 @@ class OrchestratorStateApi:
             self._save_workspace(workspace)
             return category_id
 
-    def edit_category(self, workspace_id: str, category_id:int, new_category_name: str, new_category_description: str):
+    def edit_category(self, workspace_id: str, category_id: int, new_category_name: str, new_category_description: str):
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
             workspace.categories[category_id].name = new_category_name
@@ -222,30 +240,31 @@ class OrchestratorStateApi:
             workspace.categories[category_id].iterations.append(iteration)
             self._save_workspace(workspace)
 
-    def get_iteration_status(self, workspace_id:str, category_id:int, iteration_index:int) -> IterationStatus:
+    def get_iteration_status(self, workspace_id: str, category_id: int, iteration_index: int) -> IterationStatus:
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
             return workspace.categories[category_id].iterations[iteration_index].status
 
-    def update_iteration_status(self, workspace_id:str, category_id:int, iteration_index:int, new_status: IterationStatus):
+    def update_iteration_status(self, workspace_id: str, category_id: int, iteration_index: int,
+                                new_status: IterationStatus):
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
             workspace.categories[category_id].iterations[iteration_index].status = new_status
             self._save_workspace(workspace)
 
-    def get_all_iterations(self, workspace_id, category_id:int) -> List[Iteration]:
+    def get_all_iterations(self, workspace_id, category_id: int) -> List[Iteration]:
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
             return workspace.categories[category_id].iterations
 
-    def get_all_iterations_by_status(self, workspace_id:str, category_id:int, status: IterationStatus) -> \
+    def get_all_iterations_by_status(self, workspace_id: str, category_id: int, status: IterationStatus) -> \
             List[Tuple[Iteration, int]]:
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
             return [(iteration, idx) for idx, iteration in enumerate(workspace.categories[category_id].iterations)
                     if iteration.status == status]
 
-    def add_iteration_statistics(self, workspace_id, category_id:int, iteration_index:int, statistics_dict: dict):
+    def add_iteration_statistics(self, workspace_id, category_id: int, iteration_index: int, statistics_dict: dict):
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
             iteration = workspace.categories[category_id].iterations[iteration_index]
@@ -261,7 +280,7 @@ class OrchestratorStateApi:
             iterations[iteration_index].model.model_status = new_status
             self._save_workspace(workspace)
 
-    def mark_iteration_model_as_deleted(self, workspace_id, category_id:int, iteration_index:int):
+    def mark_iteration_model_as_deleted(self, workspace_id, category_id: int, iteration_index: int):
         with self.workspaces_lock[workspace_id]:
             workspace = self._load_workspace(workspace_id)
             iteration = self.get_all_iterations(workspace_id, category_id)[iteration_index]

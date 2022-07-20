@@ -25,11 +25,12 @@ import info_icon from '../../../assets/workspace/help.svg';
 import logout_icon from '../../../assets/workspace/logout.svg';
 import workspace_icon from '../../../assets/workspace/change_catalog.svg';
 import { useDispatch, useSelector } from 'react-redux';
-import { downloadLabeling, checkModelUpdate, setWorkspaceId } from '../DataSlice.jsx';
+import { downloadLabels, uploadLabels, checkModelUpdate, setWorkspaceId } from '../DataSlice.jsx';
 import Stack from '@mui/material/Stack';
 import Button from '@mui/material/Button';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import { TextField } from '@mui/material';
 import { Tooltip } from '@mui/material';
 import useLogOut from '../../../customHooks/useLogOut';
 import { useNavigate } from 'react-router-dom';
@@ -45,6 +46,9 @@ import {
 } from "../../../const";
 import LinearWithValueLabel from './ModelProgressBar'
 import { Link } from "@mui/material";
+import FileUploadOutlinedIcon from '@mui/icons-material/FileUploadOutlined';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import { IconButton } from '@mui/material';
 
 const drawerWidth = 280; // left navigation panel width
 
@@ -128,13 +132,14 @@ export default function WorkspaceInfo({workspaceId, setTutorialOpen, checkModelI
     const [tabValue, setTabValue] = React.useState(0);
     const [tabStatus, setTabStatus] = React.useState(0)
     const refAnimationInstance = useRef(null);
-    
+    const uploadLabelsRef = useRef();
+
     // this state is used to not display the new model notififications the first time the model version is set
     const [modelVersionHasBeenSet, setModelVersionHasBeenSet] = React.useState(false)
-    const [shouldNotifyNewModel, setShouldNotifyNewModel] = React.useState(false)
-    function notifySuccess(message, toastId) {
+
+    function notifySuccess(message, toastId, autoClose=false) {
         toast(message, {
-          autoClose: false,
+          autoClose: autoClose,
           type: toast.TYPE.SUCCESS,
           toastId: toastId,
         });
@@ -144,16 +149,10 @@ export default function WorkspaceInfo({workspaceId, setTutorialOpen, checkModelI
         if (workspace.curCategory !== null) {
             if (!modelVersionHasBeenSet) {
                 setModelVersionHasBeenSet(true)
-                if (workspace.model_version === -1) {
-                    setShouldNotifyNewModel(true)
-                }
-            }
-            if (shouldNotifyNewModel) {
-                setShouldNotifyNewModel(false)
             }
             if (workspace.model_version && workspace.model_version > -1 && modelVersionHasBeenSet) {
                 fire();
-                if (shouldNotifyNewModel) {
+                if (workspace.model_version === 1) {
                     notifySuccess('A new model is available!', 'toast-new-model')
                     notifySuccess('There are new suggestions for labeling!', 'toast-new-suggestions-for-labelling')
                 }
@@ -221,7 +220,6 @@ export default function WorkspaceInfo({workspaceId, setTutorialOpen, checkModelI
         }, checkModelInterval);
 
         setModelVersionHasBeenSet(false)
-        setShouldNotifyNewModel(false)
 
         return () => clearInterval(interval);
     }, [workspace.curCategory, checkModelInterval])
@@ -272,6 +270,34 @@ export default function WorkspaceInfo({workspaceId, setTutorialOpen, checkModelI
         return prefix
     }
 
+    const handleFileSelection = (e) => {
+      const file = e.target.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      dispatch(uploadLabels(formData));
+      if (uploadLabelsRef.current) {
+        uploadLabelsRef.current.value = ''
+    }
+    };  
+
+    const getCategoriesString = (categories) => {
+        if (categories.length === 1) return categories[0]
+        else {
+            let res = ''
+            if (categories.length > 2) categories.slice(0,-2).forEach(c => res+=`${c}, `)
+            res += categories.slice(-2, -1)[0] + ' and ' + categories.slice(-1)[0]
+            return res
+        }
+    }
+
+    React.useEffect(() => {
+        if (workspace.uploadedLabels) {
+            const categoriesCreated = workspace.uploadedLabels.categoriesCreated
+            const createdCategoriesMessage = categoriesCreated.length ? `Added categories are ${getCategoriesString(categoriesCreated)}` : ''
+            notifySuccess(`New labels have been added! ${createdCategoriesMessage}`, "toast-uploaded-labels");
+        }
+    }, [workspace.uploadedLabels])
+
     return (
         <>
             {/* <Presentation /> */}
@@ -289,7 +315,7 @@ export default function WorkspaceInfo({workspaceId, setTutorialOpen, checkModelI
                             width: drawerWidth,
                             boxSizing: 'border-box',
                             color: '#fff',
-                            zIndex: '10000',
+                            zIndex: '1500',
                             background: 'transparent'
                         },
                     }}
@@ -334,7 +360,7 @@ export default function WorkspaceInfo({workspaceId, setTutorialOpen, checkModelI
                     <Divider />
                     {workspace.curCategory !== null ? 
                     
-                    <Stack style={{paddingTop: '12px'}}>
+                    <Stack style={{paddingTop: '12px', paddingBottom: "24px"}}>
                         <Box sx={{ width: '100%', padding: theme.spacing(0, 2) }}>
                             <Box sx={{ borderBottom: 1, borderColor: '#393939' }}>
                                 <Tabs
@@ -405,9 +431,40 @@ export default function WorkspaceInfo({workspaceId, setTutorialOpen, checkModelI
                             : null
                         }
                     </Stack>
-
                     : null}
-                    <Button sx={{ marginTop: 3 }} onClick={() => dispatch(downloadLabeling())}> Download Data </Button>
+                    <Divider />
+                    <Stack
+                        direction="row"
+                        sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "start",
+                            padding: theme.spacing("24px", 2),
+                        }}
+                        >
+                        <Typography>Labeled data:</Typography>
+                        <Button
+                            onClick={() => dispatch(downloadLabels())}
+                            startIcon={<FileDownloadOutlinedIcon />}
+                            sx={{ textTransform: "none" }}
+                        >
+                            Download
+                        </Button>
+                        <Button
+                            startIcon={<FileUploadOutlinedIcon />}
+                            component="label"
+                            sx={{ textTransform: "none" }}
+                        >
+                            Upload
+                            <TextField
+                                inputRef={uploadLabelsRef}
+                                onChange={handleFileSelection}
+                                sx={{ display: { xs: "none" } }}
+                                type="file"
+                                inputProps={{ accept: ".csv" }}
+                            />
+                        </Button>
+                    </Stack>
                     <Link
                         className={classes["link-to-website"]}
                         href="https://ibm.biz/label-sleuth"

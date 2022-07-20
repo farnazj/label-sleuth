@@ -15,8 +15,9 @@
 
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
 import fileDownload from 'js-file-download'
-import { BASE_URL, WORKSPACE_API } from "../../config"
- 
+import { BASE_URL, WORKSPACE_API, DOWNLOAD_LABELS_API, UPLOAD_LABELS_API } from "../../config"
+import { handleError } from '../../utils/utils'
+
 export const initialState = {
     workspaceId: "",
     curDocId: 0,
@@ -61,7 +62,9 @@ export const initialState = {
     searchInput: null,
     nextModelShouldBeTraining: false,
     // tells if the user visited the workspace at least once to open the tutorial the first time
-    workspaceVisited: false
+    workspaceVisited: false,
+    uploadedLabels: null,
+    errorMessage: null
 }
 
 const getWorkspace_url = `${BASE_URL}/${WORKSPACE_API}`
@@ -187,10 +190,8 @@ export const createCategoryOnServer = createAsyncThunk('workspace/createCategory
 
 export const searchKeywords = createAsyncThunk('workspace/searchKeywords', async (request, { getState }) => {
     const state = getState()
-
-    const { keyword } = request
     const queryParams = getQueryParamsString([
-        `qry_string=${keyword}`, 
+        `qry_string=${state.workspace.searchInput}`, 
         getCategoryQueryString(state.workspace.curCategory),
         `sample_start_idx=0`])
 
@@ -298,11 +299,11 @@ export const fetchCertainDocument = createAsyncThunk('workspace/fetchCertainDocu
     return { data, eid, switchStatus }
 })
 
-export const downloadLabeling = createAsyncThunk('workspace/downloadLabeling', async (request, { getState }) => {
+export const downloadLabels = createAsyncThunk('workspace/downloadLabels', async (request, { getState }) => {
 
     const state = getState()
 
-    var url = `${getWorkspace_url}/${encodeURIComponent(state.workspace.workspaceId)}/export_labels`
+    var url = `${getWorkspace_url}/${encodeURIComponent(state.workspace.workspaceId)}/${DOWNLOAD_LABELS_API}`
 
     const data = await fetch(url, {
         headers: {
@@ -314,6 +315,23 @@ export const downloadLabeling = createAsyncThunk('workspace/downloadLabeling', a
 
     return data
 })
+
+
+export const uploadLabels = createAsyncThunk(`workspace/uploadLabels`, async (formData, {getState}) => {
+    const state = getState()
+    let headers = {
+      "Content-Type": "multipart/form-data",
+      Authorization: `Bearer ${state.authenticate.token}`,
+    };
+    var url = `${getWorkspace_url}/${encodeURIComponent(state.workspace.workspaceId)}/${UPLOAD_LABELS_API}`;
+    const data = await fetch(url, {
+      method: "POST",
+      header: headers,
+      body: formData,
+    }).then(res => res.json());
+    return data;
+  }
+);
 
 export const labelInfoGain = createAsyncThunk('workspace/labeled_info_gain', async (request, { getState }) => {
 
@@ -541,6 +559,12 @@ const DataSlice = createSlice({
                 ...state,
                 workspaceVisited: true
             }
+        },
+        clearError(state, action) {
+            return {
+                ...state,
+                errorMessage: null
+            }
         }
     },
     extraReducers: {
@@ -692,12 +716,18 @@ const DataSlice = createSlice({
                 predictionForDocCat: predictionForDocCat
             }
         },
-        [downloadLabeling.fulfilled]: (state, action) => {
+        [downloadLabels.fulfilled]: (state, action) => {
             const data = action.payload
             const current = new Date();
             const date = `${current.getDate()}/${current.getMonth()+1}/${current.getFullYear()}`;
             const fileName = `labeleddata_from_Label_Sleuth<${date}>.csv`
             fileDownload(data, fileName)
+        },
+        [uploadLabels.fulfilled]: (state, action) => {
+            return {
+                ...state,
+                uploadedLabels: action.payload
+            }
         },
         [fetchNextDocElements.fulfilled]: (state, action) => {
             const data = action.payload
@@ -989,9 +1019,24 @@ const DataSlice = createSlice({
                 categories: [...state.categories, action.payload],
                 nextModelShouldBeTraining: false
             }
-        }
+        },
+        [uploadLabels.rejected]: (state, action) => {
+            return {
+                ...state,
+                errorMessage: handleError(action.error)
+            }
+        },
     }
 })
+
+// selector for getting the current category name (curCategory is a category id)
+export const curCategoryNameSelector = (state) => {
+  return state.workspace.categories.find(
+    (cat) => cat.category_id == state.workspace.curCategory
+  )?.category_name;
+};
+
+  
 
 export default DataSlice.reducer;
 export const { updateCurCategory,
@@ -1014,5 +1059,6 @@ export const { updateCurCategory,
     setIsSearchActive,
     setActivePanel,
     setSearchInput,
-    setWorkspaceVisited
+    setWorkspaceVisited,
+    clearError
  } = DataSlice.actions;

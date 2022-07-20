@@ -130,7 +130,7 @@ class OrchestratorApi:
         return self.orchestrator_state.add_category_to_workspace(workspace_id, category_name, category_description)
 
     def edit_category(self, workspace_id: str, category_id: int, new_category_name: str, new_category_description: str):
-        logging.info(f"Updating category id {id} name to {new_category_name}, and category description to "
+        logging.info(f"Updating category id {category_id} name to {new_category_name}, and category description to "
                      f"{new_category_description}")
         return self.orchestrator_state.edit_category(workspace_id, category_id, new_category_name,
                                                      new_category_description)
@@ -266,7 +266,7 @@ class OrchestratorApi:
                 self.orchestrator_state.increase_label_change_count_since_last_train(workspace_id, cat, num_changes)
         self.data_access.set_labels(workspace_id, uri_to_label, apply_to_duplicate_texts)
 
-    def unset_labels(self, workspace_id: str, category_id:int, uris: Sequence[str], apply_to_duplicate_texts=True):
+    def unset_labels(self, workspace_id: str, category_id: int, uris: Sequence[str], apply_to_duplicate_texts=True):
         """
         Unset labels of a set of element URIs for a given category.
         :param workspace_id:
@@ -748,17 +748,20 @@ class OrchestratorApi:
             category_id = category_name_to_id[category_name]
             uri_to_label = {uri: {category_id: label} for uri, cat_to_label in uri_to_label.items()
                             for category_name, label in cat_to_label.items()}
-            logging.info(f'{category_name}: adding labels for {len(uri_to_label)} uris')
-            self.set_labels(workspace_id, uri_to_label,
-                            apply_to_duplicate_texts=self.config.apply_labels_to_duplicate_texts,
-                            update_label_counter=True)
-    
+            if len(uri_to_label) == 0:
+                logging.info(f"found 0 elements for category {category_name}")
+            else:
+                logging.info(f'{category_name}: adding labels for {len(uri_to_label)} uris')
+                self.set_labels(workspace_id, uri_to_label,
+                                apply_to_duplicate_texts=self.config.apply_labels_to_duplicate_texts,
+                                update_label_counter=True)
+
             label_counts_dict = self.get_label_counts(workspace_id, dataset_name, category_id, False)
             logging.info(f"Updated total label count in workspace '{workspace_id}' for category id {category_id} "
                          f"is {sum(label_counts_dict.values())} ({label_counts_dict})")
-            categories_counter[category_name] = len(uri_to_label)
+            categories_counter[category_id] = len(uri_to_label)
         # TODO return both positive and negative counts
-        categories_counter_list = [{'category': key, 'counter': value} for key, value in categories_counter.items()]
+        categories_counter_list = [{'category_id': key, 'counter': value} for key, value in categories_counter.items()]
         total = sum(categories_counter.values())
     
         res = {'categories': categories_counter_list,
@@ -816,8 +819,9 @@ class OrchestratorApi:
                         # labels again to apply the labels to the new data
                         labeled_elements = self.data_access.get_labeled_text_elements(workspace_id, dataset_name,
                                                                                       category_id)['results']
-                        uri_to_label = {te.uri: te.category_to_label for te in labeled_elements}
-                        self.data_access.set_labels(workspace_id, uri_to_label, apply_to_duplicate_texts=True)
+                        if len(labeled_elements) > 0:
+                            uri_to_label = {te.uri: te.category_to_label for te in labeled_elements}
+                            self.data_access.set_labels(workspace_id, uri_to_label, apply_to_duplicate_texts=True)
     
                     if len(category.iterations) > 0:
                         iteration_index = len(category.iterations)-1
